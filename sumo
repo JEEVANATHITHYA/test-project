@@ -1,1 +1,113 @@
-hi
+from ultralytics import YOLO
+import cv2
+import math
+import os
+
+# Specify the model path
+model_path = "runs/detect/cylinder_sphere_model/weights/best.pt"
+
+# Check if the model file exists
+if not os.path.exists(model_path):
+    print(f"Model file not found at: {model_path}")
+    print("Please ensure the file 'best.pt' is placed in the correct directory.")
+    print("Directory structure should be: 'runs/detect/cylinder_sphere_model/weights/best.pt'")
+    exit()
+
+# Load the trained YOLOv8 model
+model = YOLO(model_path)
+
+# Define helper functions
+def calculate_midpoint(x1, y1, x2, y2):
+    """Calculate the midpoint of a bounding box."""
+    x_center = (x1 + x2) / 2
+    y_center = (y1 + y2) / 2
+    return int(x_center), int(y_center)
+
+def calculate_angle(x1, y1, x2, y2):
+    """Calculate the angle of the detected object."""
+    width = abs(x2 - x1)
+    height = abs(y2 - y1)
+    angle = math.atan2(height, width) * (180 / math.pi)  # Convert radians to degrees
+    return round(angle, 2)
+
+# Start video capture
+cap = cv2.VideoCapture(0)
+
+if not cap.isOpened():
+    print("Error: Camera not accessible.")
+    print("Please check your camera connection or permissions.")
+    exit()
+
+print("Press 'q' to exit the application.")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Error: Unable to capture frame from camera.")
+        break
+
+    # Perform object detection
+    results = model.predict(frame, verbose=False)
+
+    # Loop through detections
+    for result in results[0].boxes:
+        cls = int(result.cls[0])  # Class index
+        conf = float(result.conf[0])  # Confidence score
+        x1, y1, x2, y2 = map(float, result.xyxy[0].cpu().numpy())  # Bounding box coordinates
+        label = model.names[cls]  # Get class name
+
+        if conf > 0.5:  # Confidence threshold
+            # Calculate midpoint and angle
+            midpoint = calculate_midpoint(x1, y1, x2, y2)
+            angle = calculate_angle(x1, y1, x2, y2)
+
+            # Determine type (cylindrical or spherical) based on label
+            if label == "bottle_body":
+                shape_type = "Cylindrical"
+            elif label == "bottle_cap":
+                shape_type = "Spherical"
+            else:
+                shape_type = "Unknown"
+
+            # Draw bounding box
+            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+
+            # Annotate the frame with details
+            cv2.putText(
+                frame,
+                f"{label} ({shape_type})",
+                (int(x1), int(y1) - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"Midpoint: {midpoint}",
+                (int(x1), int(y1) - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 0),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"Angle: {angle} degrees",
+                (int(x1), int(y2) + 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 255),
+                2,
+            )
+
+    # Display the frame
+    cv2.imshow("Object Detection", frame)
+
+    # Break on 'q' key press
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
